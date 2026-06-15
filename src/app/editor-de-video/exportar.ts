@@ -4,6 +4,7 @@ import * as htmlToImage from 'html-to-image';
 import type { EditorState, EstiloTexto } from './tipos';
 import type { ProfileData } from '@/hooks/use-profile';
 import type { ExportOptions } from './components/export-modal';
+import { getApiUrl } from '@/lib/api-client';
 
 interface ToastProps {
     variant?: "default" | "destructive" | null | undefined,
@@ -153,7 +154,8 @@ let ffmpeg: FFmpeg | null = null;
 const imgToBase64 = async (url: string): Promise<string> => {
     if (url.startsWith('data:')) return url;
     try {
-        const response = await fetch(url);
+        const fullUrl = url.startsWith('http') ? url : getApiUrl(url);
+        const response = await fetch(fullUrl);
         const blob = await response.blob();
         return new Promise((resolve, reject) => {
             const reader = new FileReader();

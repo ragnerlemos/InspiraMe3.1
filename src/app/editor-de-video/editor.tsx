@@ -13,6 +13,7 @@ import type { EditorState, EstiloFundo } from "./tipos";
 import { useSearchParams } from "next/navigation";
 import { useTemplates } from "@/hooks/use-templates";
 import { useEditor } from "./contexts/editor-context";
+import { fetchWithBase } from "@/lib/api-client";
 import Loading from './loading';
 
 const getInitialState = (): Omit<EditorState, 'text'> => ({
@@ -91,7 +92,7 @@ export default function Editor() {
 
         let text = "A inspiração está a caminho...";
         try {
-            const response = await fetch('/api/quotes');
+            const response = await fetchWithBase('/api/quotes');
             if (response.ok) {
                 const allQuotes = await response.json();
                 if (allQuotes.length > 0) {
