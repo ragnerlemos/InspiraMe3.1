@@ -5,6 +5,8 @@ import type { EditorState, EstiloTexto } from './tipos';
 import type { ProfileData } from '@/hooks/use-profile';
 import type { ExportOptions } from './components/export-modal';
 import { getApiUrl } from '@/lib/api-client';
+import { Capacitor } from '@capacitor/core';
+import { saveFileToAppFolder } from '@/lib/file-storage';
 
 interface ToastProps {
     variant?: "default" | "destructive" | null | undefined,
@@ -96,6 +98,28 @@ export const captureAndDownload = async (format: 'jpeg' | 'png', toast: ToastFn,
         const quality = format === 'jpeg' ? 1.0 : undefined;
         const dataUrl = canvas.toDataURL(`image/${format}`, quality);
         
+        if (Capacitor.isNativePlatform()) {
+            const base64Data = dataUrl.split('base64,')[1];
+            if (base64Data) {
+                const now = Date.now();
+                const filename = `inspire-me-img-${now}.${format}`;
+                let finalCategory: string | undefined = undefined;
+                if (typeof window !== 'undefined') {
+                    const searchParams = new URLSearchParams(window.location.search);
+                    const cat = searchParams.get('category');
+                    if (cat) finalCategory = cat;
+                }
+                try {
+                    await saveFileToAppFolder(base64Data, filename, finalCategory);
+                    toast({ title: 'Sucesso!', description: `Imagem salva na pasta Download/InspiraMe/${finalCategory || ''}` });
+                } catch (err) {
+                    console.error("Erro ao salvar imagem nativamente:", err);
+                    toast({ variant: 'destructive', title: 'Erro de exportação', description: 'Não foi possível salvar a imagem.' });
+                }
+            }
+            return;
+        }
+
         const link = document.createElement('a');
         link.href = dataUrl;
         link.download = `inspire-me-img-${Date.now()}.${format}`;

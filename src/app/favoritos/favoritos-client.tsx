@@ -41,7 +41,7 @@ interface FavoritesClientPageProps {
   allQuotes: QuoteWithAuthor[];
 }
 
-function generateFilename(quote: QuoteWithAuthor, format: 'png' | 'jpeg'): string {
+function generateFilename(quote: QuoteWithAuthor, format: 'png' | 'jpeg' | 'jpg'): string {
     const safeCategory = quote.category?.replace(/\s+/g, '-') || 'Geral';
     const safeSubCategory = quote.subCategory?.replace(/\s+/g, '-');
     
@@ -92,12 +92,21 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
         await document.fonts.ready;
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        const blob = await htmlToImage.toBlob(memeRef.current, { pixelRatio: 2 });
+        const dataUrl = await htmlToImage.toJpeg(memeRef.current, {
+            quality: 0.95,
+            pixelRatio: 2,
+            backgroundColor: '#000000'
+        });
+        if (!dataUrl) {
+            throw new Error("Falha ao gerar a imagem em formato JPEG.");
+        }
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
         if (!blob) {
-            throw new Error("Falha ao gerar a imagem do meme.");
+            throw new Error("Falha ao processar o blob da imagem.");
         }
         
-        const filename = generateFilename(quote, 'png');
+        const filename = generateFilename(quote, 'jpg');
 
         if (shareDirectly) {
             if (Capacitor.isNativePlatform()) {
@@ -114,13 +123,13 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
                         throw new Error('Permissão de armazenamento não concedida.');
                     }
                     
-                    const { uri } = await saveFileToAppFolder(base64Data, filename);
+                    const { uri } = await saveFileToAppFolder(base64Data, filename, quote.category);
                     if (!uri) throw new Error("Não foi possível salvar o arquivo na pasta do app.");
                     await Share.share({ url: uri });
                     onClose();
                 }
             } else {
-                const memeFile = new File([blob], filename, { type: 'image/png' });
+                const memeFile = new File([blob], filename, { type: 'image/jpeg' });
                 if (navigator.share && navigator.canShare && navigator.canShare({ files: [memeFile] })) {
                     try {
                         await navigator.share({ files: [memeFile] });
@@ -166,10 +175,37 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
     }
   }, [shareDirectly, quote, toast, onClose]);
 
-  const handleDownloadClick = () => {
+  const handleDownloadClick = async () => {
     if (!memeUrl) return;
 
-    const filename = generateFilename(quote, 'png');
+    const filename = generateFilename(quote, 'jpg');
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const response = await fetch(memeUrl);
+        const blob = await response.blob();
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = async () => {
+          const base64Data = reader.result?.toString().split('base64,')[1];
+          if (base64Data) {
+            try {
+              const { uri } = await saveFileToAppFolder(base64Data, filename, quote.category);
+              toast({ title: 'Sucesso!', description: `Meme salvo na pasta Download/InspiraMe/${quote.category || ''}` });
+            } catch (fallbackError) {
+              console.error(fallbackError);
+              toast({ variant: 'destructive', title: 'Erro ao salvar', description: 'Não foi possível salvar a imagem.' });
+            }
+          }
+          onClose();
+        };
+      } catch (err) {
+        console.error("Erro ao converter blob nativamente:", err);
+        toast({ variant: 'destructive', title: 'Erro de download', description: 'Ocorreu um erro ao baixar a imagem.' });
+        onClose();
+      }
+      return;
+    }
 
     const link = document.createElement('a');
     link.href = memeUrl;
@@ -192,7 +228,11 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
               </div>
             </div>
             <div className="fixed top-[-9999px] left-[-9999px]">
-                <div ref={memeRef} style={{ width: '500px', aspectRatio: '9 / 16' }}>
+                <div 
+                    ref={memeRef} 
+                    className="relative overflow-hidden flex flex-col justify-center bg-black"
+                    style={{ width: '500px', aspectRatio: '9 / 16', backgroundColor: '#000000' }}
+                >
                     <ModeloTwitter
                         editorState={editorState}
                         profile={profile}
@@ -227,7 +267,11 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
                 </div>
             )}
             <div className="fixed top-[-9999px] left-[-9999px]">
-                <div ref={memeRef} style={{ width: '500px', aspectRatio: '9 / 16' }}>
+                <div 
+                    ref={memeRef} 
+                    className="relative overflow-hidden flex flex-col justify-center bg-black"
+                    style={{ width: '500px', aspectRatio: '9 / 16', backgroundColor: '#000000' }}
+                >
                     <ModeloTwitter
                         editorState={editorState}
                         profile={profile}

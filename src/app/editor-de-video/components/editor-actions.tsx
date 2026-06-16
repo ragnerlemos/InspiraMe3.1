@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import {
   Download, MoreVertical, Undo2, Redo2, Save, FilePlus, FolderUp, Share2
 } from "lucide-react";
@@ -108,9 +109,38 @@ export function EditorActions() {
         if (!videoPreview) return;
 
         const extension = videoPreview.blob.type.includes('mp4') ? 'mp4' : 'webm';
+        const filename = `inspire-me-export-${Date.now()}.${extension}`;
+
+        if (Capacitor.isNativePlatform()) {
+            const reader = new FileReader();
+            reader.readAsDataURL(videoPreview.blob);
+            reader.onloadend = async () => {
+                const base64Data = reader.result?.toString().split('base64,')[1];
+                if (base64Data) {
+                    try {
+                        let categoryStr: string | undefined = undefined;
+                        if (typeof window !== 'undefined') {
+                            const params = new URLSearchParams(window.location.search);
+                            const cat = params.get('category');
+                            if (cat) categoryStr = cat;
+                        }
+
+                        const { saveFileToAppFolder } = await import('@/lib/file-storage');
+                        await saveFileToAppFolder(base64Data, filename, categoryStr);
+                        toast({ title: 'Sucesso!', description: `Vídeo salvo na pasta Download/InspiraMe/${categoryStr || ''} com sucesso.` });
+                    } catch (err) {
+                        console.error("Erro ao salvar vídeo nativamente:", err);
+                        toast({ variant: 'destructive', title: 'Erro ao salvar', description: 'Não foi possível salvar o vídeo.' });
+                    }
+                }
+                closeVideoPreview();
+            };
+            return;
+        }
+
         const link = document.createElement('a');
         link.href = videoPreview.url;
-        link.download = `inspire-me-export-${Date.now()}.${extension}`;
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

@@ -17,9 +17,47 @@ export const ensureAppStoragePermission = async (): Promise<boolean> => {
   }
 };
 
-export const saveFileToAppFolder = async (base64Data: string, filename: string): Promise<SaveAppFileResult> => {
+export const saveFileToAppFolder = async (
+  base64Data: string, 
+  filename: string, 
+  category?: string
+): Promise<SaveAppFileResult> => {
+  const cleanCategory = category ? category.trim().replace(/[/\\?%*:|"<>]/g, '-') : '';
+  
+  // No Android, tentamos salvar na pasta pública de Downloads/InspiraMe
+  if (Capacitor.getPlatform() === 'android' || Capacitor.isNativePlatform()) {
+    try {
+      await ensureAppStoragePermission();
+      
+      const folderPath = cleanCategory 
+        ? `Download/InspiraMe/${cleanCategory}` 
+        : `Download/InspiraMe`;
+      
+      await Filesystem.mkdir({
+        path: folderPath,
+        directory: Directory.ExternalStorage,
+        recursive: true,
+      });
+
+      const result = await Filesystem.writeFile({
+        path: `${folderPath}/${filename}`,
+        data: base64Data,
+        directory: Directory.ExternalStorage,
+      });
+
+      if (result.uri) {
+        return { uri: result.uri };
+      }
+    } catch (error) {
+      console.warn('Falha ao salvar na pasta pública de Downloads. Tentando pasta Documents do App:', error);
+    }
+  }
+
+  // Fallback padrão ou outros sistemas (iOS, etc.) - Salva no Documents do App
   const directory = Directory.Documents;
-  const folderPath = `${APP_STORAGE_FOLDER}`;
+  const folderPath = cleanCategory 
+    ? `${APP_STORAGE_FOLDER}/${cleanCategory}` 
+    : `${APP_STORAGE_FOLDER}`;
 
   try {
     await Filesystem.mkdir({
@@ -28,8 +66,7 @@ export const saveFileToAppFolder = async (base64Data: string, filename: string):
       recursive: true,
     });
   } catch (error) {
-    // Ignore if the folder already exists or if the plugin created it automatically.
-    console.warn('Não foi possível criar a pasta do app (pode já existir):', error);
+    console.warn('Não foi possível criar a pasta do app nos documentos (pode já existir):', error);
   }
 
   const result = await Filesystem.writeFile({
@@ -39,7 +76,7 @@ export const saveFileToAppFolder = async (base64Data: string, filename: string):
   });
 
   if (!result.uri) {
-    throw new Error('Não foi possível salvar o arquivo na pasta do app.');
+    throw new Error('Não foi possível salvar o arquivo.');
   }
 
   return { uri: result.uri };
