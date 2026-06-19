@@ -1,19 +1,6 @@
 
 import { google } from 'googleapis';
 
-const auth = new google.auth.GoogleAuth({
-  credentials: {
-    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  },
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-
-const sheets = google.sheets({
-  version: 'v4',
-  auth: auth,
-});
-
 export interface QuoteWithAuthor {
     id: string;
     quote: string;
@@ -32,6 +19,21 @@ interface CategoriesHierarchy {
 
 export interface SheetHierarchy {
   [sheetName: string]: CategoriesHierarchy;
+}
+
+function getSheetsClient() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    },
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  return google.sheets({
+    version: 'v4',
+    auth: auth,
+  });
 }
 
 
@@ -100,6 +102,7 @@ export async function getAllSheetNames(forceRefresh = false): Promise<string[]> 
             return [];
         }
 
+        const sheets = getSheetsClient();
         const spreadsheetMeta = await sheets.spreadsheets.get({
             spreadsheetId
         });
@@ -146,18 +149,7 @@ export async function getAllQuotes(forceRefresh = false): Promise<QuoteWithAutho
             return [];
         }
 
-        const auth = new google.auth.GoogleAuth({
-          credentials: {
-            client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-            private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-          },
-          scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-        });
-        
-        const sheetsClient = google.sheets({
-          version: 'v4',
-          auth: auth,
-        });
+        const sheetsClient = getSheetsClient();
 
         // Add a Promise race to ensure we do not hang indefinitely
         const timeoutPromise = new Promise<never>((_, reject) => 
