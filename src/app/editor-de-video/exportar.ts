@@ -1,6 +1,6 @@
 'use client';
 
-import * as htmlToImage from 'html-to-image';
+// import { toCanvas } from 'html-to-image';
 import type { EditorState, EstiloTexto } from './tipos';
 import type { ProfileData } from '@/hooks/use-profile';
 import type { ExportOptions } from './components/export-modal';
@@ -76,7 +76,8 @@ export const captureAndDownload = async (format: 'jpeg' | 'png', toast: ToastFn,
             }
         }
 
-        const overlayCanvas = await htmlToImage.toCanvas(previewElement, {
+        const { toCanvas } = await import('html-to-image');
+        const overlayCanvas = await toCanvas(previewElement, {
             pixelRatio: 2,
             width,
             height,
@@ -155,25 +156,23 @@ export const captureThumbnail = async (toast: ToastFn, state: EditorState, profi
      const videoStyle = video?.style.getPropertyValue('display') || '';
      if (video) video.style.display = 'none';
      
-     const overlayCanvas = await htmlToImage.toCanvas(previewElement, {
+     const { toCanvas } = await import('html-to-image');
+     const overlayCanvas = await toCanvas(previewElement, {
         pixelRatio: 1,
         width: width,
         height: height,
         backgroundColor: 'transparent'
-     });
+      });
      
      if (video) video.style.display = videoStyle;
      ctx.drawImage(overlayCanvas, 0, 0, width, height);
      return canvas.toDataURL('image/jpeg', 0.8);
   } catch (err) {
-      return null;
+       return null;
   }
 };
 
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
-
-let ffmpeg: FFmpeg | null = null;
+let ffmpeg: any = null;
 
 const imgToBase64 = async (url: string): Promise<string> => {
     if (url.startsWith('data:')) return url;
@@ -194,8 +193,10 @@ const imgToBase64 = async (url: string): Promise<string> => {
 
 const loadFFmpeg = async (toast: ToastFn) => {
     if (ffmpeg) return ffmpeg;
-    ffmpeg = new FFmpeg();
     try {
+        const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+        const { toBlobURL } = await import('@ffmpeg/util');
+        ffmpeg = new FFmpeg();
         const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
         await ffmpeg.load({
             coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
@@ -291,7 +292,8 @@ export const generateVideoBlob = async (
   let overlayCanvas: HTMLCanvasElement;
   try {
     // IMPORTANTE: Aqui usamos pixelRatio e as dimensões lógicas para o alinhamento ficar perfeito
-    overlayCanvas = await htmlToImage.toCanvas(previewElement, {
+    const { toCanvas } = await import('html-to-image');
+    overlayCanvas = await toCanvas(previewElement, {
         pixelRatio: scale,
         width: logicalWidth,
         height: logicalHeight,

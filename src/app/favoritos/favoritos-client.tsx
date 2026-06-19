@@ -4,10 +4,11 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from "next/link";
 import { useFavorites } from "@/hooks/use-favorites";
+import { useLikes } from "@/hooks/use-likes";
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Film, Copy, Trash2, Share2, HeartCrack, MoreVertical, Edit, Download, Loader2, MessageSquare, Heart } from "lucide-react";
+import { Film, Copy, Trash2, Share2, HeartCrack, MoreVertical, Edit, Download, Loader2, MessageSquare, Heart, Star } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import * as htmlToImage from 'html-to-image';
+// import { toJpeg } from 'html-to-image';
 import { ensureAppStoragePermission, saveFileToAppFolder } from '@/lib/file-storage';
 import { ClientOnly } from '@/components/client-only';
 import { useProfile } from '@/hooks/use-profile';
@@ -40,6 +41,25 @@ interface QuoteWithAuthor {
 interface FavoritesClientPageProps {
   allQuotes: QuoteWithAuthor[];
 }
+
+const getQuoteLikes = (quote: QuoteWithAuthor, extraLikes: number = 0) => {
+  let hash = 0;
+  const str = quote.id + quote.quote;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const baseLikes = Math.abs(hash % 90) + 10;
+  return baseLikes + extraLikes;
+};
+
+const getQuoteViews = (quote: QuoteWithAuthor) => {
+  let hash = 0;
+  const str = (quote.quote || '') + quote.id;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 900) + 100;
+};
 
 function generateFilename(quote: QuoteWithAuthor, format: 'png' | 'jpeg' | 'jpg'): string {
     const safeCategory = quote.category?.replace(/\s+/g, '-') || 'Geral';
@@ -72,6 +92,9 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
 }) {
   const memeRef = useRef<HTMLDivElement>(null);
   const [memeUrl, setMemeUrl] = useState<string | null>(null);
+  const [memeFile, setMemeFile] = useState<File | null>(null);
+  const [isCopyingImage, setIsCopyingImage] = useState(false);
+  const [isSharingImage, setIsSharingImage] = useState(false);
   const { toast } = useToast();
 
   const baseTextStyle: EstiloTexto = {
@@ -92,7 +115,8 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
         await document.fonts.ready;
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        const dataUrl = await htmlToImage.toJpeg(memeRef.current, {
+        const { toJpeg } = await import('html-to-image');
+        const dataUrl = await toJpeg(memeRef.current, {
             quality: 0.95,
             pixelRatio: 2,
             backgroundColor: '#000000'
@@ -107,6 +131,9 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
         }
         
         const filename = generateFilename(quote, 'jpg');
+        const fileObj = new File([blob], filename, { type: 'image/jpeg' });
+        setMemeFile(fileObj);
+        setMemeUrl(URL.createObjectURL(blob));
 
         if (shareDirectly) {
             if (Capacitor.isNativePlatform()) {
@@ -128,32 +155,7 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
                     await Share.share({ url: uri });
                     onClose();
                 }
-            } else {
-                const memeFile = new File([blob], filename, { type: 'image/jpeg' });
-                if (navigator.share && navigator.canShare && navigator.canShare({ files: [memeFile] })) {
-                    try {
-                        await navigator.share({ files: [memeFile] });
-                        onClose();
-                    } catch(error) {
-                        if (error instanceof DOMException && error.name === 'AbortError') {
-                            console.log("Compartilhamento cancelado pelo usuário.");
-                            onClose();
-                        } else {
-                             console.error('Web Share API error:', error);
-                             onClose();
-                        }
-                    }
-                } else {
-                    toast({
-                        title: "Compartilhamento não suportado",
-                        description: "Seu navegador não suporta o compartilhamento direto de imagens. Você pode baixar a imagem e compartilhar manualmente.",
-                    });
-                    setMemeUrl(URL.createObjectURL(blob));
-                    return;
-                }
             }
-        } else {
-            setMemeUrl(URL.createObjectURL(blob));
         }
       } catch (error) {
         console.error('Erro ao gerar/compartilhar meme:', error);
@@ -174,6 +176,96 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
         }
     }
   }, [shareDirectly, quote, toast, onClose]);
+
+  const handleCopyImageClick = async () => {
+    if (!memeUrl) return;
+    setIsCopyingImage(true);
+    try {
+      const response = await fetch(memeUrl);
+      const blob = await response.blob();
+      
+      if (navigator.clipboard && window.isSecureContext) {
+        // Converte o jpeg/blob para png para maximizar compatibilidade com a área de transferência do sistema
+        const pngBlob = await new Promise<Blob>((resolve, reject) => {
+            const img = new window.Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error("Erro ao criar contexto de canvas"));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0);
+                canvas.toBlob((result) => {
+                    if (result) {
+                        resolve(result);
+                    } else {
+                        reject(new Error("Falha ao exportar PNG"));
+                    }
+                }, 'image/png');
+            };
+            img.onerror = () => reject(new Error("Erro ao carregar imagem para conversão"));
+            img.src = URL.createObjectURL(blob);
+        });
+
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'image/png': pngBlob
+          })
+        ]);
+        
+        toast({ 
+          title: 'Imagem Copiada!', 
+          description: 'A imagem foi copiada para a sua área de transferência com sucesso.' 
+        });
+        onClose();
+      } else {
+        throw new Error("API de Área de Transferência não disponível ou contexto não seguro.");
+      }
+    } catch (err) {
+      console.error("Erro ao copiar imagem:", err);
+      toast({ 
+        variant: 'destructive', 
+        title: 'Erro ao copiar imagem', 
+        description: 'Não foi possível copiar. Por favor, utilize a opção de Baixar.' 
+      });
+    } finally {
+      setIsCopyingImage(false);
+    }
+  };
+
+  const handleShareImageClick = async () => {
+    if (!memeFile) return;
+    setIsSharingImage(true);
+    try {
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [memeFile] })) {
+        await navigator.share({
+          files: [memeFile],
+        });
+        onClose();
+      } else {
+        toast({
+          title: "Compartilhamento não suportado",
+          description: "Seu navegador não suporta compartilhamento de arquivos. Por favor, utilize a opção de Baixar ou Copiar.",
+        });
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log("Compartilhamento cancelado pelo usuário.");
+      } else {
+        console.error("Erro ao compartilhar imagem:", err);
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao compartilhar',
+          description: 'Não foi possível compartilhar a imagem. Tente baixar ou copiar.',
+        });
+      }
+    } finally {
+      setIsSharingImage(false);
+    }
+  };
 
   const handleDownloadClick = async () => {
     if (!memeUrl) return;
@@ -248,17 +340,58 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
 
   return (
     <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-        <div className="relative" onClick={(e) => e.stopPropagation()}>
+        <div className="relative w-full max-w-sm sm:max-w-md mx-auto" onClick={(e) => e.stopPropagation()}>
             {memeUrl ? (
-                 <div className="flex flex-col items-center gap-4">
-                    <p className="text-white text-lg font-bold">Clique no meme para baixar</p>
+                 <div className="flex flex-col items-center gap-4 bg-[#020817]/95 border border-slate-800 p-6 rounded-2xl">
+                    <p className="text-white text-md font-semibold text-center leading-tight">Visualizar Imagem</p>
                     <img 
                         src={memeUrl} 
                         alt="Pré-visualização do Meme" 
-                        className="max-w-[80vw] max-h-[70vh] rounded-lg shadow-2xl cursor-pointer"
+                        className="max-w-[75vw] max-h-[55vh] rounded-lg shadow-2xl cursor-pointer border border-[#1e293b]"
                         style={{ aspectRatio: '9 / 16' }}
                         onClick={handleDownloadClick}
                     />
+                    <div className="flex flex-col gap-2 w-full mt-2">
+                        {memeFile && typeof window !== 'undefined' && navigator.share && (
+                          <Button
+                              variant="default"
+                              disabled={isCopyingImage || isSharingImage}
+                              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                              onClick={handleShareImageClick}
+                          >
+                              {isSharingImage ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                  <Share2 className="h-4 w-4" />
+                              )}
+                              Compartilhar Imagem
+                          </Button>
+                        )}
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                            <Button
+                                variant="outline"
+                                disabled={isCopyingImage || isSharingImage}
+                                className="bg-[#1e293b] hover:bg-slate-800 text-slate-100 border-none font-semibold py-2 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                                onClick={handleDownloadClick}
+                            >
+                                <Download className="h-4 w-4" />
+                                Baixar
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                disabled={isCopyingImage || isSharingImage}
+                                className="bg-[#1e293b] hover:bg-slate-800 text-slate-100 font-semibold py-2 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                                onClick={handleCopyImageClick}
+                            >
+                                {isCopyingImage ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Copy className="h-4 w-4" />
+                                )}
+                                Copiar Imagem
+                            </Button>
+                        </div>
+                    </div>
                  </div>
             ) : (
                 <div className="text-white text-center flex flex-col items-center gap-4">
@@ -288,6 +421,7 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
 
 export function FavoritesClientPage({ allQuotes }: FavoritesClientPageProps) {
   const { favorites, toggleFavorite } = useFavorites();
+  const { likedIds, customCounts, toggleLike } = useLikes();
   const { toast } = useToast();
   const router = useRouter();
   const { profile } = useProfile();
@@ -314,10 +448,18 @@ export function FavoritesClientPage({ allQuotes }: FavoritesClientPageProps) {
             return;
         }
 
+        let copied = false;
         if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(textToCopy);
-            toast({ title: 'Copiado!', description: 'A frase foi copiada para a sua área de transferência.' });
-        } else {
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                toast({ title: 'Copiado!', description: 'A frase foi copiada para a sua área de transferência.' });
+                copied = true;
+            } catch (clipErr) {
+                console.warn('navigator.clipboard.writeText failed, playing back fallback:', clipErr);
+            }
+        }
+
+        if (!copied) {
             const textArea = document.createElement('textarea');
             textArea.value = textToCopy;
             textArea.style.position = 'fixed';
@@ -472,6 +614,8 @@ export function FavoritesClientPage({ allQuotes }: FavoritesClientPageProps) {
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {favoriteQuotes.map((quote) => {
                       const isFavorited = favorites.includes(quote.id);
+                      const isLiked = likedIds.includes(quote.id);
+                      const extraLikes = customCounts[quote.id] || 0;
                       return (
                           <Card key={quote.id} className="group flex flex-col justify-between hover:shadow-lg transition-shadow duration-300">
                               <CardContent className="p-4 pb-0 flex-1">
@@ -494,6 +638,14 @@ export function FavoritesClientPage({ allQuotes }: FavoritesClientPageProps) {
                                           </p>
                                       )}
                                   </div>
+                                  <div className="flex items-center justify-between w-full text-[9px] text-muted-foreground/70 border-t border-muted/20 pt-1 mt-0.5">
+                                    <span className="flex items-center gap-0.5 font-mono">
+                                      ❤️ {getQuoteLikes(quote, extraLikes)} curtidas
+                                    </span>
+                                    <span className="flex items-center gap-0.5 font-mono">
+                                      👁️ {getQuoteViews(quote)} views
+                                    </span>
+                                  </div>
                                   <div className="flex justify-end items-center w-full pt-1 -space-x-2 -mr-2">
                                     <Button variant="ghost" size="icon-sm" onClick={() => handlePreviewMeme(quote)}>
                                         <Download className="h-4 w-4" />
@@ -501,8 +653,11 @@ export function FavoritesClientPage({ allQuotes }: FavoritesClientPageProps) {
                                     <Button variant="ghost" size="icon-sm" onClick={() => handleCopy(quote.quote, quote.author)}>
                                       <Copy className="h-4 w-4" />
                                     </Button>
+                                    <Button variant="ghost" size="icon-sm" onClick={() => toggleLike(quote.id)}>
+                                      <Heart className={cn("h-4 w-4", isLiked ? "text-red-500 fill-current" : "text-gray-400")} />
+                                    </Button>
                                     <Button variant="ghost" size="icon-sm" onClick={() => toggleFavorite(quote.id)}>
-                                      <Heart className={cn("h-4 w-4", isFavorited ? "text-red-500 fill-current" : "text-gray-400")} />
+                                      <Star className={cn("h-4 w-4", isFavorited ? "text-amber-500 fill-current" : "text-gray-400")} />
                                     </Button>
                                     <Button variant="ghost" size="icon-sm" onClick={() => handleShareMeme(quote)}>
                                       <Share2 className="h-4 w-4" />
@@ -532,10 +687,10 @@ export function FavoritesClientPage({ allQuotes }: FavoritesClientPageProps) {
               </div>
               ) : (
               <div className="text-center py-20 bg-card border rounded-lg flex flex-col items-center">
-                  <HeartCrack className="h-16 w-16 text-muted-foreground/50 mb-4" />
+                  <Star className="h-16 w-16 text-muted-foreground/30 mb-4" />
                   <h2 className="text-2xl font-semibold mb-2">Nenhuma frase favorita ainda</h2>
                   <p className="text-muted-foreground mb-6">
-                  Clique no ícone de coração (❤️) em uma frase para adicioná-la aqui.
+                  Clique no ícone de estrela (⭐) em uma frase para adicioná-la aqui.
                   </p>
                   <Link href="/frases" passHref>
                   <Button>Encontrar Inspiração</Button>

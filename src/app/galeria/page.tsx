@@ -1,13 +1,15 @@
 
 "use client";
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { PlusCircle, MoreVertical, Edit, Trash2, Library } from "lucide-react";
 import { useGallery } from "@/hooks/use-gallery";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +45,27 @@ export default function GalleryPage() {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
+    // Handle hardware back button on mobile
+    useEffect(() => {
+        if (!Capacitor.isNativePlatform()) return;
+
+        const setupBackListener = async () => {
+            const backListener = await App.addListener('backButton', () => {
+                if (selectedCategory) {
+                    const defaultCategory = categories.find(c => c.isDefault);
+                    setSelectedCategory(defaultCategory ? defaultCategory.id : null);
+                }
+            });
+            return backListener;
+        };
+
+        const listenerPromise = setupBackListener();
+
+        return () => {
+            listenerPromise.then(l => l.remove());
+        };
+    }, [selectedCategory, categories, setSelectedCategory]);
+
     const handleAddCategory = () => {
         if (categoryName.trim()) {
             addCategory(categoryName.trim());

@@ -1,12 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: process.env.IS_CAPACITOR_BUILD === 'true' ? 'export' : undefined,
+  output: undefined,
+  transpilePackages: [
+  ],
   typescript: {
     ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
   },
+
   images: {
     remotePatterns: [
       {

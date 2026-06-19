@@ -15,6 +15,8 @@ import { Separator } from '@/components/ui/separator';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 
+export const dynamic = 'force-dynamic';
+
 function ProfileSkeleton() {
     return (
         <div className="container mx-auto py-8 px-4 max-w-4xl">

@@ -21,7 +21,12 @@ export interface FirebaseServices {
 }
 
 // React Context
-export const FirebaseContext = createContext<FirebaseContextState | undefined>(undefined);
+export const FirebaseContext = createContext<FirebaseContextState>({
+  areServicesAvailable: false,
+  firebaseApp: {} as FirebaseApp,
+  firestore: {} as Firestore,
+  auth: {} as Auth
+});
 
 /**
  * FirebaseProvider manages and provides Firebase services.
@@ -55,15 +60,27 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
  * Hook to access core Firebase services.
  * Throws error if core services are not available or used outside provider.
  */
-export const useFirebase = (): FirebaseServices => {
+export const useFirebase = (): FirebaseServices | any => {
   const context = useContext(FirebaseContext);
 
-  if (context === undefined) {
-    throw new Error('useFirebase must be used within a FirebaseProvider.');
+  if (typeof window === 'undefined') {
+    return {
+       firebaseApp: {} as FirebaseApp,
+       firestore: {} as Firestore,
+       auth: {} as Auth
+    };
   }
 
   if (!context.areServicesAvailable || !context.firebaseApp || !context.firestore || !context.auth) {
-    throw new Error('Firebase core services not available. Check FirebaseProvider props.');
+    // If we are on the client, we should probably throw
+    if (typeof window !== 'undefined') {
+        throw new Error('Firebase core services not available. Check FirebaseProvider props.');
+    }
+    return {
+       firebaseApp: {} as FirebaseApp,
+       firestore: {} as Firestore,
+       auth: {} as Auth
+    };
   }
 
   return {

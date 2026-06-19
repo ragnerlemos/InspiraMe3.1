@@ -13,6 +13,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+export const dynamic = 'force-dynamic';
 import {
   AlertDialog,
   AlertDialogAction,

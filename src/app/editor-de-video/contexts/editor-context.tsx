@@ -7,7 +7,7 @@ import type { EditorState, EstiloTexto } from '../tipos';
 import { captureAndDownload, captureThumbnail, generateVideoBlob } from '../exportar';
 import type { ExportOptions } from '../components/export-modal';
 import { useProfile } from '@/hooks/use-profile';
-import { useWindowSize } from 'react-use';
+import useWindowSize from 'react-use/lib/useWindowSize';
 import { createStrokeStyle, createDropShadowStyle } from '../utils/text-style-utils';
 
 export interface EditorContextType {

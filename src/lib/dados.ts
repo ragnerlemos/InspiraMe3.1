@@ -21,6 +21,9 @@ export interface QuoteWithAuthor {
     category?: string;
     subCategory?: string;
     sheetName: string;
+    date?: string;
+    time?: string;
+    rowNumber?: number;
 }
 
 interface CategoriesHierarchy {
@@ -70,6 +73,9 @@ const mapRowToQuote = (row: any[], index: number, sheetName: string): QuoteWithA
         category,
         subCategory,
         sheetName: sheetName,
+        date: row[0] || undefined,
+        time: row[1] || undefined,
+        rowNumber: index,
     };
 };
 
@@ -135,16 +141,51 @@ export async function getAllQuotes(forceRefresh = false): Promise<QuoteWithAutho
             return [];
         }
 
-        const sheetNames = await getAllSheetNames(forceRefresh);
-        if (!sheetNames || sheetNames.length === 0) {
+        if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
+            console.error('Credenciais do Google não estão definidas no ambiente.');
             return [];
         }
 
-        const ranges = sheetNames.map(name => `'${name}'!A:J`);
-        const response = await sheets.spreadsheets.values.batchGet({
-            spreadsheetId,
-            ranges,
+        const auth = new google.auth.GoogleAuth({
+          credentials: {
+            client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+            private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+          },
+          scopes: ['https://www.googleapis.com/auth/spreadsheets'],
         });
+        
+        const sheetsClient = google.sheets({
+          version: 'v4',
+          auth: auth,
+        });
+
+        // Add a Promise race to ensure we do not hang indefinitely
+        const timeoutPromise = new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout ao conectar com Google Sheets API')), 8000)
+        );
+
+        const fetchPromise = async () => {
+            const spreadsheetMeta = await sheetsClient.spreadsheets.get({
+                spreadsheetId
+            });
+            const names = spreadsheetMeta.data.sheets
+                ?.map(sheet => sheet.properties?.title)
+                .filter((title): title is string => !!title);
+
+            if (!names || names.length === 0) return [];
+            
+            const ranges = names.map(name => `'${name}'!A:J`);
+            const response = await sheetsClient.spreadsheets.values.batchGet({
+                spreadsheetId,
+                ranges,
+            });
+            return { names, response };
+        };
+
+        const result = await Promise.race([fetchPromise(), timeoutPromise]) as any;
+        const { names, response } = result;
+
+        if (!names || names.length === 0) return [];
 
         const valueRanges = response.data.valueRanges;
         if (!valueRanges) {
@@ -152,7 +193,7 @@ export async function getAllQuotes(forceRefresh = false): Promise<QuoteWithAutho
         }
         
         const quotes: QuoteWithAuthor[] = [];
-        valueRanges.forEach((range) => {
+        valueRanges.forEach((range: any) => {
             const sheetNameWithQuotes = range.range?.split('!')[0] || 'Desconhecida';
             const sheetName = sheetNameWithQuotes.replace(/'/g, ''); 
             
@@ -167,7 +208,9 @@ export async function getAllQuotes(forceRefresh = false): Promise<QuoteWithAutho
         });
         
         cachedQuotes = quotes;
-        lastFetchTime = now;
+        lastFetchTime = Date.now();
+        cachedSheetNames = names;
+        lastSheetNamesFetchTime = Date.now();
         return quotes;
 
     } catch (error) {

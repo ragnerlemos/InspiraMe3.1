@@ -3,12 +3,13 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Heart, Search, Copy, Film, Share2, LayoutGrid, Download, MoreVertical, Sun, Calendar, Moon, MessageSquare, Quote, CircleDollarSign, PartyPopper, Gift, Egg, HeartHandshake, TestTube, ImageUp, Edit, ZoomIn, BookOpen, Loader2, ChevronRight, RefreshCw, type LucideIcon } from 'lucide-react';
-import { useWindowSize } from 'react-use';
+import { Heart, Star, Search, Copy, Film, Share2, LayoutGrid, Download, MoreVertical, Sun, Calendar, Moon, MessageSquare, Quote, CircleDollarSign, PartyPopper, Gift, Egg, HeartHandshake, TestTube, ImageUp, Edit, ZoomIn, BookOpen, Loader2, ChevronRight, RefreshCw, ArrowUpDown, SlidersHorizontal, type LucideIcon } from 'lucide-react';
+import useWindowSize from 'react-use/lib/useWindowSize';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { useFavorites } from '@/hooks/use-favorites';
+import { useLikes } from '@/hooks/use-likes';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -20,7 +21,8 @@ import { getApiUrl, fetchWithBase } from '@/lib/api-client';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 import { Clipboard } from '@capacitor/clipboard';
-import * as htmlToImage from 'html-to-image';
+import { App } from '@capacitor/app';
+// import { toJpeg } from 'html-to-image';
 import { useProfile } from '@/hooks/use-profile';
 import { ModeloTwitter } from '../editor-de-video/modelos/modelo-twitter';
 import type { EditorState, EstiloTexto } from '../editor-de-video/tipos';
@@ -34,6 +36,10 @@ interface QuoteWithAuthor {
     author?: string;
     category: string;
     subCategory?: string;
+    sheetName?: string;
+    date?: string;
+    time?: string;
+    rowNumber?: number;
 }
 
 interface CategoriesHierarchy {
@@ -80,7 +86,10 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
 }) {
   const memeRef = useRef<HTMLDivElement>(null);
   const [memeUrl, setMemeUrl] = useState<string | null>(null);
+  const [memeFile, setMemeFile] = useState<File | null>(null);
   const [isTextSelected, setIsTextSelected] = useState(false);
+  const [isCopyingImage, setIsCopyingImage] = useState(false);
+  const [isSharingImage, setIsSharingImage] = useState(false);
   const { toast } = useToast();
 
   const handleTextBoxResize = (_next: { widthPct: number; heightPx: number }) => {
@@ -109,7 +118,8 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
         await document.fonts.ready;
         await new Promise(resolve => setTimeout(resolve, 300)); // Aguarda a renderização
         
-        const dataUrl = await htmlToImage.toJpeg(memeRef.current, {
+        const { toJpeg } = await import('html-to-image');
+        const dataUrl = await toJpeg(memeRef.current, {
             quality: 0.95,
             pixelRatio: 2,
             backgroundColor: '#000000'
@@ -124,6 +134,9 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
         }
         
         const filename = generateFilename(quote, 'jpg');
+        const fileObj = new File([blob], filename, { type: 'image/jpeg' });
+        setMemeFile(fileObj);
+        setMemeUrl(URL.createObjectURL(blob));
 
         if (shareDirectly) {
             if (Capacitor.isNativePlatform()) {
@@ -164,36 +177,7 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
                     onClose();
                 };
                 reader.readAsDataURL(blob);
-            } else {
-                // Lógica para Web
-                const memeFile = new File([blob], filename, { type: 'image/jpeg' });
-                if (navigator.share && navigator.canShare && navigator.canShare({ files: [memeFile] })) {
-                    try {
-                        await navigator.share({
-                            files: [memeFile],
-                        });
-                        onClose(); // Fecha apenas se o compartilhamento for iniciado
-                    } catch(error) {
-                        if (error instanceof DOMException && error.name === 'AbortError') {
-                            console.log("Compartilhamento cancelado pelo usuário.");
-                        } else {
-                            console.error('Web Share API error:', error);
-                        }
-                        await onCopy(quote.quote, quote.author);
-                        onClose();
-                    }
-                } else {
-                    toast({
-                        title: "Compartilhamento não suportado",
-                        description: "Seu navegador não suporta o compartilhamento direto de imagens. Você pode baixar a imagem e compartilhar manualmente.",
-                    });
-                    setMemeUrl(URL.createObjectURL(blob)); // Permite download
-                    return; // Return to show the download preview
-                }
             }
-        } else {
-            // Lógica para download (preview)
-            setMemeUrl(URL.createObjectURL(blob));
         }
       } catch (error) {
         console.error('Erro ao gerar/compartilhar meme:', error);
@@ -214,6 +198,96 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
         }
     }
   }, [shareDirectly, quote, toast, onClose]);
+
+  const handleShareImageClick = async () => {
+    if (!memeFile) return;
+    setIsSharingImage(true);
+    try {
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [memeFile] })) {
+        await navigator.share({
+          files: [memeFile],
+        });
+        onClose();
+      } else {
+        toast({
+          title: "Compartilhamento não suportado",
+          description: "Seu navegador não suporta compartilhamento de arquivos. Por favor, utilize a opção de Baixar ou Copiar.",
+        });
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log("Compartilhamento cancelado pelo usuário.");
+      } else {
+        console.error("Erro ao compartilhar imagem:", err);
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao compartilhar',
+          description: 'Não foi possível compartilhar a imagem. Tente baixar ou copiar.',
+        });
+      }
+    } finally {
+      setIsSharingImage(false);
+    }
+  };
+
+  const handleCopyImageClick = async () => {
+    if (!memeUrl) return;
+    setIsCopyingImage(true);
+    try {
+      const response = await fetch(memeUrl);
+      const blob = await response.blob();
+      
+      if (navigator.clipboard && window.isSecureContext) {
+        // Converte o jpeg/blob para png para maximizar compatibilidade com a área de transferência do sistema
+        const pngBlob = await new Promise<Blob>((resolve, reject) => {
+            const img = new window.Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error("Erro ao criar contexto de canvas"));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0);
+                canvas.toBlob((result) => {
+                    if (result) {
+                        resolve(result);
+                    } else {
+                        reject(new Error("Falha ao exportar PNG"));
+                    }
+                }, 'image/png');
+            };
+            img.onerror = () => reject(new Error("Erro ao carregar imagem para conversão"));
+            img.src = URL.createObjectURL(blob);
+        });
+
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'image/png': pngBlob
+          })
+        ]);
+        
+        toast({ 
+          title: 'Imagem Copiada!', 
+          description: 'A imagem foi copiada para a sua área de transferência com sucesso.' 
+        });
+        onClose();
+      } else {
+        throw new Error("API de Área de Transferência não disponível ou contexto não seguro.");
+      }
+    } catch (err) {
+      console.error("Erro ao copiar imagem:", err);
+      toast({ 
+        variant: 'destructive', 
+        title: 'Erro ao copiar imagem', 
+        description: 'Não foi possível copiar. Por favor, utilize a opção de Baixar.' 
+      });
+    } finally {
+      setIsCopyingImage(false);
+    }
+  };
 
   const handleDownloadClick = async () => {
     if (!memeUrl) return;
@@ -295,17 +369,58 @@ function MemeGenerator({ quote, profile, editorState, onClose, shareDirectly = f
   // Renderiza a pré-visualização para download
   return (
     <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-        <div className="relative" onClick={(e) => e.stopPropagation()}>
+        <div className="relative w-full max-w-sm sm:max-w-md mx-auto" onClick={(e) => e.stopPropagation()}>
             {memeUrl ? (
-                 <div className="flex flex-col items-center gap-4">
-                    <p className="text-white text-lg font-bold">Clique no meme para baixar</p>
+                 <div className="flex flex-col items-center gap-4 bg-[#020817]/95 border border-slate-800 p-6 rounded-2xl">
+                    <p className="text-white text-md font-semibold text-center leading-tight">Visualizar Imagem</p>
                     <img 
                         src={memeUrl} 
                         alt="Pré-visualização do Meme" 
-                        className="max-w-[80vw] max-h-[70vh] rounded-lg shadow-2xl cursor-pointer"
+                        className="max-w-[75vw] max-h-[55vh] rounded-lg shadow-2xl cursor-pointer border border-[#1e293b]"
                         style={{ aspectRatio: '9 / 16' }}
                         onClick={handleDownloadClick}
                     />
+                    <div className="flex flex-col gap-2 w-full mt-2">
+                        {memeFile && typeof window !== 'undefined' && navigator.share && (
+                          <Button
+                              variant="default"
+                              disabled={isCopyingImage || isSharingImage}
+                              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                              onClick={handleShareImageClick}
+                          >
+                              {isSharingImage ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                  <Share2 className="h-4 w-4" />
+                              )}
+                              Compartilhar Imagem
+                          </Button>
+                        )}
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                            <Button
+                                variant="outline"
+                                disabled={isCopyingImage || isSharingImage}
+                                className="bg-[#1e293b] hover:bg-slate-800 text-slate-100 border-none font-semibold py-2 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                                onClick={handleDownloadClick}
+                            >
+                                <Download className="h-4 w-4" />
+                                Baixar
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                disabled={isCopyingImage || isSharingImage}
+                                className="bg-[#1e293b] hover:bg-slate-800 text-slate-100 font-semibold py-2 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                                onClick={handleCopyImageClick}
+                            >
+                                {isCopyingImage ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Copy className="h-4 w-4" />
+                                )}
+                                Copiar Imagem
+                            </Button>
+                        </div>
+                    </div>
                  </div>
             ) : (
                 <div className="text-white text-center flex flex-col items-center gap-4">
@@ -357,6 +472,29 @@ const getCategoryIcon = (categoryName: string): LucideIcon => {
     return BookOpen;
 }
 
+const getQuoteLikes = (quote: QuoteWithAuthor, extraLikes: number = 0) => {
+  let hash = 0;
+  const str = quote.id + quote.quote;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const baseLikes = Math.abs(hash % 90) + 10;
+  return baseLikes + extraLikes;
+};
+
+const getQuoteViews = (quote: QuoteWithAuthor) => {
+  let hash = 0;
+  const str = (quote.quote || '') + quote.id;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 900) + 100;
+};
+
+const getQuotePopularity = (quote: QuoteWithAuthor, extraLikes: number = 0) => {
+  return getQuoteLikes(quote, extraLikes) * 3 + getQuoteViews(quote);
+};
+
 export function FrasesClientPage({
   initialQuotes,
   initialMainCategories,
@@ -371,16 +509,42 @@ export function FrasesClientPage({
   const [selectedMainCategory, setSelectedMainCategory] = useState<string>('Todos');
   const [selectedSubCategory, setSelectedSubCategory] = useState<string>('Todos');
   const [isCategorySheetOpen, setIsCategorySheetOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<'recentes' | 'curtidas' | 'populares' | 'acessadas' | 'aleatorias' | 'antigas'>('recentes');
+  const [randomSeed, setRandomSeed] = useState<number>(0);
   
   const [quoteForMeme, setQuoteForMeme] = useState<{ quote: QuoteWithAuthor; action: 'preview' | 'share'; } | null>(null);
 
   const { favorites, toggleFavorite } = useFavorites();
+  const { likedIds, customCounts, toggleLike } = useLikes();
   const { toast } = useToast();
   const router = useRouter();
   const { profile } = useProfile();
   const { width } = useWindowSize();
   
   const cols = width >= 1024 ? 3 : 2;
+
+  // Handle hardware back button on mobile
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const setupBackListener = async () => {
+        const backListener = await App.addListener('backButton', () => {
+            if (selectedSubCategory !== 'Todos' || selectedMainCategory !== 'Todos') {
+                setSelectedMainCategory('Todos');
+                setSelectedSubCategory('Todos');
+            } else if (searchTerm) {
+                setSearchTerm('');
+            }
+        });
+        return backListener;
+    };
+
+    const listenerPromise = setupBackListener();
+
+    return () => {
+        listenerPromise.then(l => l.remove());
+    };
+  }, [selectedMainCategory, selectedSubCategory, searchTerm]);
 
   const handleRefreshQuotes = async () => {
     setIsRefreshing(true);
@@ -466,9 +630,66 @@ export function FrasesClientPage({
       );
     }
     
-    return quotes;
+    // Sort implementation based on the selected criteria
+    const items = [...quotes];
+    if (sortBy === 'recentes') {
+      items.sort((a, b) => {
+        if (a.date && b.date) {
+          if (a.date !== b.date) return b.date.localeCompare(a.date);
+          if (a.time && b.time) return b.time.localeCompare(a.time);
+        }
+        const rowA = a.rowNumber ?? 0;
+        const rowB = b.rowNumber ?? 0;
+        return rowB - rowA;
+      });
+    } else if (sortBy === 'antigas') {
+      items.sort((a, b) => {
+        if (a.date && b.date) {
+          if (a.date !== b.date) return a.date.localeCompare(b.date);
+          if (a.time && b.time) return a.time.localeCompare(b.time);
+        }
+        const rowA = a.rowNumber ?? 0;
+        const rowB = b.rowNumber ?? 0;
+        return rowA - rowB;
+      });
+    } else if (sortBy === 'curtidas') {
+      items.sort((a, b) => {
+        const extraA = customCounts[a.id] || 0;
+        const extraB = customCounts[b.id] || 0;
+        const scoreA = getQuoteLikes(a, extraA);
+        const scoreB = getQuoteLikes(b, extraB);
+        return scoreB - scoreA;
+      });
+    } else if (sortBy === 'populares') {
+      items.sort((a, b) => {
+        const extraA = customCounts[a.id] || 0;
+        const extraB = customCounts[b.id] || 0;
+        const popA = getQuotePopularity(a, extraA);
+        const popB = getQuotePopularity(b, extraB);
+        return popB - popA;
+      });
+    } else if (sortBy === 'acessadas') {
+      items.sort((a, b) => {
+        const viewsA = getQuoteViews(a);
+        const viewsB = getQuoteViews(b);
+        return viewsB - viewsA;
+      });
+    } else if (sortBy === 'aleatorias') {
+      const rands = new Map<string, number>();
+      items.forEach(q => {
+        let hash = randomSeed;
+        const str = q.id;
+        for (let i = 0; i < str.length; i++) {
+          hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        rands.set(q.id, Math.sin(hash));
+      });
+      items.sort((a, b) => (rands.get(a.id) ?? 0) - (rands.get(b.id) ?? 0));
+    }
 
-  }, [allQuotes, searchTerm, selectedMainCategory, selectedSubCategory]);
+    return items;
+
+  }, [allQuotes, searchTerm, selectedMainCategory, selectedSubCategory, sortBy, randomSeed, favorites, customCounts]);
 
   
   const handleShareMeme = (quote: QuoteWithAuthor) => {
@@ -489,10 +710,18 @@ export function FrasesClientPage({
             return;
         }
 
+        let copied = false;
         if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(textToCopy);
-            toast({ title: 'Copiado!', description: 'A frase foi copiada para a sua área de transferência.' });
-        } else {
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                toast({ title: 'Copiado!', description: 'A frase foi copiada para a sua área de transferência.' });
+                copied = true;
+            } catch (clipErr) {
+                console.warn('navigator.clipboard.writeText failed, playing back fallback:', clipErr);
+            }
+        }
+
+        if (!copied) {
             const textArea = document.createElement('textarea');
             textArea.value = textToCopy;
             textArea.style.position = 'fixed';
@@ -798,60 +1027,154 @@ export function FrasesClientPage({
                     {pageTitle}
                   </h1>
               </div>
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex flex-wrap items-center justify-center md:justify-end gap-2">
+                {(selectedMainCategory !== 'Todos' || selectedSubCategory !== 'Todos' || searchTerm !== '') && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold h-9"
+                    onClick={() => {
+                      setSelectedMainCategory('Todos');
+                      setSelectedSubCategory('Todos');
+                      setSearchTerm('');
+                    }}
+                  >
+                    <ChevronRight className="mr-1 h-1.5 w-1.5 rotate-180" />
+                    Voltar
+                  </Button>
+                )}
+                
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="font-semibold flex items-center gap-1.5 h-9 bg-card hover:bg-accent border-muted/50">
+                      <SlidersHorizontal className="h-4 w-4 text-primary" />
+                      <span className="truncate">
+                        {sortBy === 'recentes' && '🆕 Mais recentes'}
+                        {sortBy === 'curtidas' && '⭐ Mais curtidas'}
+                        {sortBy === 'populares' && '🔥 Mais populares'}
+                        {sortBy === 'acessadas' && '📈 Mais acessadas'}
+                        {sortBy === 'aleatorias' && '🎲 Aleatórias'}
+                        {sortBy === 'antigas' && '📅 Mais antigas'}
+                      </span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[180px] bg-[#070e1e] border-muted/50">
+                    <DropdownMenuItem className={cn("cursor-pointer focus:bg-primary/10", sortBy === 'recentes' && "bg-secondary font-bold text-primary")} onClick={() => setSortBy('recentes')}>
+                      🆕 Mais recentes
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className={cn("cursor-pointer focus:bg-primary/10", sortBy === 'curtidas' && "bg-secondary font-bold text-primary")} onClick={() => setSortBy('curtidas')}>
+                      ⭐ Mais curtidas
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className={cn("cursor-pointer focus:bg-primary/10", sortBy === 'populares' && "bg-secondary font-bold text-primary")} onClick={() => setSortBy('populares')}>
+                      🔥 Mais populares
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className={cn("cursor-pointer focus:bg-primary/10", sortBy === 'acessadas' && "bg-secondary font-bold text-primary")} onClick={() => setSortBy('acessadas')}>
+                      📈 Mais acessadas
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className={cn("cursor-pointer focus:bg-primary/10", sortBy === 'aleatorias' && "bg-secondary font-bold text-primary")} onClick={() => {
+                      setSortBy('aleatorias');
+                      setRandomSeed(Date.now());
+                    }}>
+                      🎲 Aleatórias
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className={cn("cursor-pointer focus:bg-primary/10", sortBy === 'antigas' && "bg-secondary font-bold text-primary")} onClick={() => setSortBy('antigas')}>
+                      📅 Mais antigas
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleRefreshQuotes}
                   disabled={isRefreshing}
+                  className="h-9"
                 >
                   {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                   Atualizar
                 </Button>
                 <div className="md:hidden">
-                  <Button variant="outline" size="icon" onClick={() => setIsCategorySheetOpen(true)}>
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setIsCategorySheetOpen(true)}>
                       <LayoutGrid className="h-5 w-5" />
                   </Button>
                 </div>
               </div>
             </div>
             
-            {selectedMainCategory !== 'Todos' && (
-              <div className="flex items-center text-sm mb-6">
-                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="link"
-                      className="p-0 h-auto font-semibold text-muted-foreground hover:text-primary"
-                    >
-                      {selectedMainCategory}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onClick={() => handleSubCategorySelect(selectedMainCategory, 'Todos')}>
-                      Todos em {selectedMainCategory}
-                    </DropdownMenuItem>
-                    {breadcrumbSubCategories.map(subCat => (
-                      <DropdownMenuItem key={subCat} onClick={() => handleSubCategorySelect(selectedMainCategory, subCat)}>
-                        {subCat}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                {selectedSubCategory !== 'Todos' && (
+            {(selectedMainCategory !== 'Todos' || selectedSubCategory !== 'Todos') && (
+              <div className="flex items-center text-sm mb-6 bg-secondary/30 p-2 rounded-lg">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="mr-2 h-8 px-2"
+                  onClick={() => {
+                    setSelectedMainCategory('Todos');
+                    setSelectedSubCategory('Todos');
+                  }}
+                >
+                    <ChevronRight className="h-4 w-4 rotate-180 mr-1" />
+                    Voltar
+                </Button>
+                <div className="h-4 w-[1px] bg-muted-foreground/30 mr-3" />
+                
+                {selectedMainCategory !== 'Todos' ? (
                   <>
-                    <ChevronRight className="h-4 w-4 mx-1 text-muted-foreground" />
-                    <span className="font-semibold text-foreground">{selectedSubCategory}</span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="link"
+                          className="p-0 h-auto font-semibold text-muted-foreground hover:text-primary"
+                        >
+                          {selectedMainCategory}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => handleSubCategorySelect(selectedMainCategory, 'Todos')}>
+                          Todos em {selectedMainCategory}
+                        </DropdownMenuItem>
+                        {breadcrumbSubCategories.map(subCat => (
+                          <DropdownMenuItem key={subCat} onClick={() => handleSubCategorySelect(selectedMainCategory, subCat)}>
+                            {subCat}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    {selectedSubCategory !== 'Todos' && (
+                      <>
+                        <ChevronRight className="h-4 w-4 mx-1 text-muted-foreground" />
+                        <span className="font-semibold text-foreground">{selectedSubCategory}</span>
+                      </>
+                    )}
                   </>
+                ) : (
+                  <span className="font-semibold text-foreground">Categoria: {selectedSubCategory}</span>
                 )}
               </div>
+            )}
+            
+            {selectedMainCategory === 'Todos' && searchTerm && (
+                <div className="flex items-center text-sm mb-6 bg-secondary/30 p-2 rounded-lg">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="mr-2 h-8 px-2"
+                      onClick={() => setSearchTerm('')}
+                    >
+                        <ChevronRight className="h-4 w-4 rotate-180 mr-1" />
+                        Limpar Busca
+                    </Button>
+                    <span className="text-muted-foreground">Resultados para: </span>
+                    <span className="font-semibold ml-1">"{searchTerm}"</span>
+                </div>
             )}
             
             {isLoading ? renderSkeletons() : filteredQuotes.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredQuotes.map((quote, index) => {
                   const isFavorited = favorites.includes(quote.id);
+                  const isLiked = likedIds.includes(quote.id);
+                  const extraLikes = customCounts[quote.id] || 0;
                   return (
                     <Card key={quote.id} className={getCardClasses(index)}>
                       
@@ -875,6 +1198,14 @@ export function FrasesClientPage({
                                   </p>
                               )}
                           </div>
+                          <div className="flex items-center justify-between w-full text-[9px] text-muted-foreground/70 border-t border-muted/20 pt-1 mt-0.5">
+                            <span className="flex items-center gap-0.5 font-mono">
+                              ❤️ {getQuoteLikes(quote, extraLikes)} curtidas
+                            </span>
+                            <span className="flex items-center gap-0.5 font-mono">
+                              👁️ {getQuoteViews(quote)} views
+                            </span>
+                          </div>
                           <div className="flex justify-end items-center w-full pt-1 -space-x-2 -mr-2">
                             <Button variant="ghost" size="icon-sm" onClick={() => handlePreviewMeme(quote)}>
                                 <Download className="h-4 w-4" />
@@ -882,8 +1213,11 @@ export function FrasesClientPage({
                             <Button variant="ghost" size="icon-sm" onClick={() => handleCopy(quote.quote, quote.author)}>
                               <Copy className="h-4 w-4" />
                             </Button>
+                            <Button variant="ghost" size="icon-sm" onClick={() => toggleLike(quote.id)}>
+                              <Heart className={cn("h-4 w-4", isLiked ? "text-red-500 fill-current" : "text-gray-400")} />
+                            </Button>
                             <Button variant="ghost" size="icon-sm" onClick={() => toggleFavorite(quote.id)}>
-                              <Heart className={cn("h-4 w-4", isFavorited ? "text-red-500 fill-current" : "text-gray-400")} />
+                              <Star className={cn("h-4 w-4", isFavorited ? "text-amber-500 fill-current" : "text-gray-400")} />
                             </Button>
                             <Button variant="ghost" size="icon-sm" onClick={() => handleShareMeme(quote)}>
                               <Share2 className="h-4 w-4" />

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useRef } from 'react';
-import html2canvas from 'html2canvas';
+// removed html2canvas
 import { useProfile } from '@/hooks/use-profile';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Download, User, AtSign, Image as ImageIcon, Loader2, Twitter } from 'lucide-react';
 import { AssinaturaPerfil } from '../editor-de-video/modelos/assinatura-perfil';
 import { Skeleton } from '@/components/ui/skeleton';
+
+export const dynamic = 'force-dynamic';
 
 // Componente de pré-visualização da assinatura
 function AssinaturaPreview({ profile, showPhoto, showUsername, showSocial }: {

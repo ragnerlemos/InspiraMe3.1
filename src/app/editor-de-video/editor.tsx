@@ -3,7 +3,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
-import { useWindowSize } from "react-use";
+import useWindowSize from "react-use/lib/useWindowSize";
 import { useProfile } from "@/hooks/use-profile";
 import { Sidebar } from "./components/sidebar";
 import { PreviewCanva } from "./components/preview-canva";

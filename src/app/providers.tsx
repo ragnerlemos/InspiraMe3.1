@@ -11,8 +11,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       enableSystem={false}
       disableTransitionOnChange
     >
-      <Toaster />
       {children}
+      <Toaster />
     </ThemeProvider>
   );
 }
